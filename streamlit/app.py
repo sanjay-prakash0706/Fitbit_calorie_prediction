@@ -167,12 +167,75 @@ with tab1:
 
 with tab2:
     st.subheader("Workout Pattern Prediction")
-    cluster_features = ["Age", "Weight_kg", "Height_m", "Max_BPM", "Avg_BPM", "Resting_BPM", "Session_Duration_hours", "Fat_Percentage", "Water_Intake_liters", "Workout_Frequency_days_per_week", "BMI", "Weekly_Workout_Hours"]
+    st.caption(
+        "Your entered workout is compared with the patterns learned by K-Means. "
+        "The cluster profile shows the average values of records belonging to that cluster."
+    )
+
+    # These are the same numerical features used to train the clustering model.
+    # Workout_Type is intentionally excluded because the project requirement
+    # says clustering should identify patterns without using Workout_Type labels.
+    cluster_features = [
+        "Age", "Weight_kg", "Height_m", "Max_BPM", "Avg_BPM",
+        "Resting_BPM", "Session_Duration_hours", "Fat_Percentage",
+        "Water_Intake_liters", "Workout_Frequency_days_per_week",
+        "BMI", "Weekly_Workout_Hours"
+    ]
+
+    def get_pattern_name(cluster_id, profile):
+        all_profiles = (
+            df.groupby("Workout_Cluster")[cluster_features]
+            .mean(numeric_only=True)
+        )
+
+        # Use the learned cluster averages to create a descriptive label.
+        # These are descriptive names, not medical or fitness-level diagnoses.
+        if profile["Session_Duration_hours"] == all_profiles["Session_Duration_hours"].max() and profile["Workout_Frequency_days_per_week"] == all_profiles["Workout_Frequency_days_per_week"].max():
+            return "Frequent Long-Session Pattern"
+        if profile["Avg_BPM"] == all_profiles["Avg_BPM"].max():
+            return "Higher Heart-Rate Pattern"
+        return "Moderate Activity Pattern"
+
     if st.button("Predict Workout Cluster", key="cluster_button"):
-        cluster_id = int(cluster_model.predict(cluster_scaler.transform(input_data[cluster_features]))[0])
-        st.success(f"Predicted Workout Cluster: {cluster_id}")
-        summary = df[df["Workout_Cluster"] == cluster_id][cluster_features + ["Calories_Burned_kcal"]].mean(numeric_only=True).to_frame("Average").round(2)
-        styled_dataframe(summary)
+        cluster_input = input_data[cluster_features].astype(float)
+        cluster_id = int(cluster_model.predict(cluster_scaler.transform(cluster_input))[0])
+
+        cluster_rows = df[df["Workout_Cluster"] == cluster_id]
+        profile = cluster_rows[cluster_features].mean(numeric_only=True)
+        pattern_name = get_pattern_name(cluster_id, profile)
+
+        st.success(f"Predicted Workout Pattern: {pattern_name}")
+        st.info(f"Assigned Cluster: {cluster_id}")
+
+        st.markdown("### Your Entered Workout Data")
+        user_values = input_data[cluster_features].T.rename(columns={0: "Your Input"})
+        styled_dataframe(user_values.round(2))
+
+        st.markdown(f"### Cluster {cluster_id} Profile")
+        st.caption(
+            f"Average values from {len(cluster_rows):,} training records assigned to Cluster {cluster_id}."
+        )
+        profile_table = profile.to_frame("Cluster Average").round(2)
+        styled_dataframe(profile_table)
+
+        st.markdown("### Your Input vs Cluster Average")
+        comparison = pd.DataFrame({
+            "Your Input": input_data[cluster_features].iloc[0],
+            "Cluster Average": profile
+        })
+        comparison["Difference"] = comparison["Your Input"] - comparison["Cluster Average"]
+        styled_dataframe(comparison.round(2))
+
+        st.markdown("### Additional Cluster Information")
+        extra_columns = ["Workout_Type", "Experience_Level", "Calories_Burned_kcal"]
+        available_extra = [col for col in extra_columns if col in cluster_rows.columns]
+        if available_extra:
+            extra_summary = cluster_rows[available_extra].copy()
+            for col in available_extra:
+                if pd.api.types.is_numeric_dtype(extra_summary[col]):
+                    extra_summary[col] = extra_summary[col].round(2)
+            st.write("The following information is shown for context and is not used to assign the cluster:")
+            styled_dataframe(extra_summary.head(20), height=300)
 
 with tab3:
     st.subheader("Interactive Analytics")
